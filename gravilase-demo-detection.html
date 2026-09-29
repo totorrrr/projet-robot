@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GraviLase — Démo détection</title>
+<style>
+  :root{
+    --dark:#171A21;
+    --panel:#10131A;
+    --field:#0E1117;
+    --border:#2A2F3A;
+    --orange:#E8590C;
+    --green:#15803D;
+    --red:#AD2229;
+    --light:#F5F1EC;
+    --muted:#9AA1AC;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;}
+  body{
+    display:flex;flex-direction:column;min-height:100%;
+    background:var(--dark);color:var(--light);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    padding-top:env(safe-area-inset-top,0px);
+    padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  header{padding:12px 16px;background:var(--panel);border-bottom:1px solid var(--border);}
+  h1{font-size:18px;margin:0 0 2px;letter-spacing:.02em;}
+  .sub{font-size:12px;color:var(--muted);margin:0 0 10px;}
+  .warn{background:#3A1E00;border:1px solid var(--orange);color:#FFD9B3;font-size:12px;padding:8px 10px;border-radius:6px;margin-bottom:10px;}
+  .warn[hidden]{display:none;}
+  .row{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:flex-end;}
+  .field{display:flex;flex-direction:column;flex:1;min-width:180px;}
+  .field-label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:4px;}
+  input[type=text]{padding:9px 10px;border-radius:6px;border:1px solid var(--border);background:var(--field);color:var(--light);font-size:13px;width:100%;}
+  select{padding:9px 10px;border-radius:6px;border:1px solid var(--border);background:var(--field);color:var(--light);font-size:13px;width:100%;}
+  button{padding:9px 14px;border-radius:6px;border:none;background:var(--orange);color:#fff;font-weight:600;font-size:13px;cursor:pointer;white-space:nowrap;}
+  button:disabled{opacity:.4;cursor:not-allowed;}
+  button.secondary{background:#2A2F3A;}
+  .slider-row{display:flex;align-items:center;gap:10px;}
+  input[type=range]{flex:1;accent-color:var(--orange);}
+  .status-line{font-size:12px;color:var(--muted);min-height:16px;margin-top:2px;}
+  details{margin-top:4px;}
+  summary{font-size:12px;color:var(--muted);cursor:pointer;}
+  details p{font-size:12px;color:var(--muted);line-height:1.5;margin:8px 0 0;}
+  main{position:relative;flex:1;display:flex;align-items:center;justify-content:center;background:#000;overflow:hidden;min-height:260px;}
+  video{width:100%;height:100%;object-fit:cover;display:block;}
+  .placeholder{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px;padding:24px;text-align:center;}
+  .status{position:absolute;top:10px;left:10px;right:10px;display:flex;justify-content:space-between;font-size:11px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.7);pointer-events:none;}
+  .pct{font-variant-numeric:tabular-nums;font-weight:700;}
+  .banner{position:absolute;left:0;right:0;bottom:0;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px));text-align:center;font-size:19px;font-weight:700;letter-spacing:.02em;transition:background .15s;}
+  .banner.idle{background:rgba(20,24,32,.85);color:var(--muted);}
+  .banner.clear{background:rgba(21,128,61,.92);color:#fff;}
+  .banner.detect{background:rgba(173,34,41,.95);color:#fff;}
+  footer{padding:8px 16px calc(8px + env(safe-area-inset-bottom,0px));font-size:11px;color:#6B7280;background:var(--panel);}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>GraviLase — démonstrateur de détection</h1>
+  <p class="sub">Caméra du téléphone + modèle entraîné sur Teachable Machine. La torche remplace le laser réel pour le prototype.</p>
+
+  <div id="warn" class="warn" hidden></div>
+
+  <div class="row">
+    <div class="field">
+      <span class="field-label">URL du modèle Teachable Machine</span>
+      <input type="text" id="modelUrl" placeholder="https://teachablemachine.withgoogle.com/models/XXXXXXXX/">
+    </div>
+    <button id="loadBtn">Charger le modèle</button>
+  </div>
+  <div class="status-line" id="loadStatus"></div>
+
+  <div class="row" style="margin-top:8px;">
+    <div class="field" style="flex:0 0 160px;">
+      <span class="field-label">Classe = mauvaise herbe</span>
+      <select id="classSelect" disabled><option>— charge le modèle —</option></select>
+    </div>
+    <button id="startBtn" disabled>Démarrer la caméra</button>
+    <button id="torchTestBtn" class="secondary" disabled>Tester la torche</button>
+  </div>
+
+  <div class="field" style="margin-top:4px;">
+    <span class="field-label">Seuil de détection : <span id="thresholdVal">70 %</span></span>
+    <div class="slider-row">
+      <input type="range" id="threshold" min="0.3" max="0.95" step="0.05" value="0.7">
+    </div>
+  </div>
+
+  <details>
+    <summary>Aide rapide</summary>
+    <p>
+      1) Sur teachablemachine.withgoogle.com, entraîne un modèle avec deux classes (ex. « herbe » / « gravier »)
+      avec des photos de ton gravier/terrasse. 2) Exporte-le en cliquant sur « Export Model » → onglet
+      « Upload (shareable link) » → « Upload my model », puis copie le lien fourni et colle-le ci-dessus.
+      3) Clique « Charger le modèle », puis « Démarrer la caméra ». Autorise l'accès caméra quand le
+      navigateur le demande. La torche ne fonctionne que si la page est servie en HTTPS (GitHub Pages
+      convient) — pas en ouvrant le fichier directement.
+    </p>
+  </details>
+</header>
+
+<main>
+  <video id="video" playsinline muted autoplay></video>
+  <div class="placeholder" id="placeholder">La caméra apparaîtra ici après le démarrage.</div>
+  <div class="status" id="statusOverlay" hidden>
+    <span>Détection : <span class="pct" id="pct">—</span></span>
+    <span id="torchStatus">Torche : —</span>
+  </div>
+  <div class="banner idle" id="banner">En attente</div>
+</main>
+
+<footer>
+  Prototype GraviLase — démonstrateur de détection seul (pas de laser). Inspiré du principe du projet
+  académique POODLE : séparer le démonstrateur de détection du système de destruction réel.
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  let model = null;
+  let stream = null;
+  let running = false;
+  let torchOn = false;
+  let torchSupported = false;
+  let threshold = 0.70;
+  let targetClassIndex = 0;
+  let currentlyDetected = false;
+  const OFF_MARGIN = 0.15; // marge avant extinction, pour éviter que la torche clignote près du seuil
+
+  const els = {
+    modelUrl: document.getElementById('modelUrl'),
+    loadBtn: document.getElementById('loadBtn'),
+    loadStatus: document.getElementById('loadStatus'),
+    startBtn: document.getElementById('startBtn'),
+    torchTestBtn: document.getElementById('torchTestBtn'),
+    classSelect: document.getElementById('classSelect'),
+    threshold: document.getElementById('threshold'),
+    thresholdVal: document.getElementById('thresholdVal'),
+    video: document.getElementById('video'),
+    placeholder: document.getElementById('placeholder'),
+    statusOverlay: document.getElementById('statusOverlay'),
+    pct: document.getElementById('pct'),
+    torchStatus: document.getElementById('torchStatus'),
+    banner: document.getElementById('banner'),
+    warn: document.getElementById('warn'),
+  };
+
+  if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+    els.warn.hidden = false;
+    els.warn.textContent = 'Cette page doit être ouverte en HTTPS (par exemple via GitHub Pages) pour que ' +
+      'la caméra et la torche fonctionnent correctement. Protocole actuel : ' + location.protocol;
+  }
+
+  els.threshold.addEventListener('input', function(){
+    threshold = parseFloat(els.threshold.value);
+    els.thresholdVal.textContent = Math.round(threshold * 100) + ' %';
+  });
+
+  els.classSelect.addEventListener('change', function(){
+    targetClassIndex = parseInt(els.classSelect.value, 10);
+  });
+
+  els.loadBtn.addEventListener('click', loadModel);
+  els.startBtn.addEventListener('click', startCamera);
+  els.torchTestBtn.addEventListener('click', testTorch);
+
+  function setLoadStatus(msg, isError){
+    els.loadStatus.textContent = msg;
+    els.loadStatus.style.color = isError ? '#FFB4B4' : 'var(--muted)';
+  }
+
+  async function loadModel(){
+    const raw = els.modelUrl.value.trim();
+    if (!raw){
+      setLoadStatus('Colle d\'abord l\'URL de ton modèle Teachable Machine.', true);
+      return;
+    }
+    const url = raw.endsWith('/') ? raw : raw + '/';
+    els.loadBtn.disabled = true;
+    setLoadStatus('Chargement du modèle...', false);
+    try {
+      model = await tmImage.load(url + 'model.json', url + 'metadata.json');
+      setLoadStatus('Modèle chargé (' + model.getTotalClasses() + ' classes).', false);
+      els.startBtn.disabled = false;
+    } catch (e) {
+      console.error(e);
+      setLoadStatus('Échec du chargement. Vérifie l\'URL (doit ressembler à ' +
+        'https://teachablemachine.withgoogle.com/models/XXXXXXXX/).', true);
+    }
+    els.loadBtn.disabled = false;
+  }
+
+  async function startCamera(){
+    els.startBtn.disabled = true;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 640 }, height: { ideal: 480 } }
+      });
+    } catch (e) {
+      console.error(e);
+      alert('Impossible d\'accéder à la caméra : ' + e.message);
+      els.startBtn.disabled = false;
+      return;
+    }
+
+    els.video.srcObject = stream;
+    await els.video.play();
+    els.placeholder.hidden = true;
+    els.statusOverlay.hidden = false;
+
+    const track = stream.getVideoTracks()[0];
+    const caps = (track.getCapabilities && track.getCapabilities()) || {};
+    torchSupported = !!caps.torch;
+    els.torchTestBtn.disabled = !torchSupported;
+    els.torchStatus.textContent = 'Torche : ' + (torchSupported ? 'disponible' : 'non supportée ici');
+
+    // Une première prédiction sert juste à récupérer les noms de classes du modèle
+    const firstPred = await model.predict(els.video);
+    els.classSelect.innerHTML = '';
+    firstPred.forEach(function(p, i){
+      const opt = document.createElement('option');
+      opt.value = i;
+      opt.textContent = p.className;
+      els.classSelect.appendChild(opt);
+    });
+    els.classSelect.disabled = false;
+
+    const guess = firstPred.findIndex(function(p){ return /herbe|weed|mauvaise/i.test(p.className); });
+    targetClassIndex = guess >= 0 ? guess : 0;
+    els.classSelect.value = targetClassIndex;
+
+    running = true;
+    requestAnimationFrame(loop);
+  }
+
+  async function setTorch(on){
+    if (!torchSupported || !stream) return;
+    if (on === torchOn) return;
+    try {
+      await stream.getVideoTracks()[0].applyConstraints({ advanced: [{ torch: on }] });
+      torchOn = on;
+    } catch (e) {
+      console.error('Torche : impossible de changer l\'état', e);
+    }
+  }
+
+  async function testTorch(){
+    await setTorch(true);
+    setTimeout(function(){ setTorch(false); }, 800);
+  }
+
+  async function loop(){
+    if (!running) return;
+    try {
+      const preds = await model.predict(els.video);
+      const p = preds[targetClassIndex] ? preds[targetClassIndex].probability : 0;
+      els.pct.textContent = Math.round(p * 100) + ' %';
+
+      if (!currentlyDetected && p >= threshold){
+        currentlyDetected = true;
+      } else if (currentlyDetected && p < threshold - OFF_MARGIN){
+        currentlyDetected = false;
+      }
+
+      if (currentlyDetected){
+        els.banner.className = 'banner detect';
+        els.banner.textContent = 'MAUVAISE HERBE DÉTECTÉE';
+        setTorch(true);
+      } else {
+        els.banner.className = 'banner clear';
+        els.banner.textContent = 'RAS';
+        setTorch(false);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    requestAnimationFrame(loop);
+  }
+})();
+</script>
+
+</body>
+</html>
