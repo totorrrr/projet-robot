@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>GraviLase — Démo détection</title>
+<title>GraviLase — Démo détection (carrés)</title>
 <style>
   :root{
     --dark:#171A21;
@@ -31,10 +31,9 @@
   .warn{background:#3A1E00;border:1px solid var(--orange);color:#FFD9B3;font-size:12px;padding:8px 10px;border-radius:6px;margin-bottom:10px;}
   .warn[hidden]{display:none;}
   .row{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:flex-end;}
-  .field{display:flex;flex-direction:column;flex:1;min-width:180px;}
+  .field{display:flex;flex-direction:column;flex:1;min-width:140px;}
   .field-label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:4px;}
-  input[type=text]{padding:9px 10px;border-radius:6px;border:1px solid var(--border);background:var(--field);color:var(--light);font-size:13px;width:100%;}
-  select{padding:9px 10px;border-radius:6px;border:1px solid var(--border);background:var(--field);color:var(--light);font-size:13px;width:100%;}
+  input[type=text],input[type=password]{padding:9px 10px;border-radius:6px;border:1px solid var(--border);background:var(--field);color:var(--light);font-size:13px;width:100%;}
   button{padding:9px 14px;border-radius:6px;border:none;background:var(--orange);color:#fff;font-weight:600;font-size:13px;cursor:pointer;white-space:nowrap;}
   button:disabled{opacity:.4;cursor:not-allowed;}
   button.secondary{background:#2A2F3A;}
@@ -46,8 +45,10 @@
   details p{font-size:12px;color:var(--muted);line-height:1.5;margin:8px 0 0;}
   main{position:relative;flex:1;display:flex;align-items:center;justify-content:center;background:#000;overflow:hidden;min-height:260px;}
   video{width:100%;height:100%;object-fit:cover;display:block;}
+  canvas#boxes{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;}
   .placeholder{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px;padding:24px;text-align:center;}
-  .status{position:absolute;top:10px;left:10px;right:10px;display:flex;justify-content:space-between;font-size:11px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.7);pointer-events:none;}
+  .status{position:absolute;top:10px;left:10px;right:10px;display:flex;justify-content:space-between;font-size:11px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.7);pointer-events:none;gap:8px;}
+  .status span{background:rgba(0,0,0,.35);padding:3px 7px;border-radius:5px;}
   .pct{font-variant-numeric:tabular-nums;font-weight:700;}
   .banner{position:absolute;left:0;right:0;bottom:0;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px));text-align:center;font-size:19px;font-weight:700;letter-spacing:.02em;transition:background .15s;}
   .banner.idle{background:rgba(20,24,32,.85);color:var(--muted);}
@@ -59,97 +60,120 @@
 <body>
 
 <header>
-  <h1>GraviLase — démonstrateur de détection</h1>
-  <p class="sub">Caméra du téléphone + modèle entraîné sur Teachable Machine. La torche remplace le laser réel pour le prototype.</p>
+  <h1>GraviLase — démonstrateur avec carrés de détection</h1>
+  <p class="sub">Caméra du téléphone + modèle de détection d'objets Roboflow. Dessine un carré sur chaque mauvaise herbe repérée et allume la torche.</p>
 
   <div id="warn" class="warn" hidden></div>
 
   <div class="row">
     <div class="field">
-      <span class="field-label">URL du modèle Teachable Machine</span>
-      <input type="text" id="modelUrl" placeholder="https://teachablemachine.withgoogle.com/models/XXXXXXXX/">
+      <span class="field-label">ID du projet Roboflow</span>
+      <input type="text" id="project" placeholder="ex. gravilase">
     </div>
-    <button id="loadBtn">Charger le modèle</button>
+    <div class="field" style="flex:0 0 90px;">
+      <span class="field-label">Version</span>
+      <input type="text" id="version" placeholder="1">
+    </div>
   </div>
-  <div class="status-line" id="loadStatus"></div>
-
-  <div class="row" style="margin-top:8px;">
-    <div class="field" style="flex:0 0 160px;">
-      <span class="field-label">Classe = mauvaise herbe</span>
-      <select id="classSelect" disabled><option>— charge le modèle —</option></select>
+  <div class="row">
+    <div class="field">
+      <span class="field-label">Clé API Roboflow</span>
+      <input type="password" id="apiKey" placeholder="colle ta clé API ici">
     </div>
-    <button id="startBtn" disabled>Démarrer la caméra</button>
+    <div class="field" style="flex:0 0 160px;">
+      <span class="field-label">Nom de la classe à surveiller</span>
+      <input type="text" id="targetClass" value="mauvaise_herbe">
+    </div>
+    <button id="startBtn">Démarrer la caméra</button>
     <button id="torchTestBtn" class="secondary" disabled>Tester la torche</button>
   </div>
+  <div class="status-line" id="apiStatus"></div>
 
   <div class="field" style="margin-top:4px;">
-    <span class="field-label">Seuil de détection : <span id="thresholdVal">70 %</span></span>
+    <span class="field-label">Seuil de confiance : <span id="thresholdVal">50 %</span></span>
     <div class="slider-row">
-      <input type="range" id="threshold" min="0.3" max="0.95" step="0.05" value="0.7">
+      <input type="range" id="threshold" min="0.2" max="0.95" step="0.05" value="0.5">
     </div>
   </div>
 
   <details>
     <summary>Aide rapide</summary>
     <p>
-      1) Sur teachablemachine.withgoogle.com, entraîne un modèle avec deux classes (ex. « herbe » / « gravier »)
-      avec des photos de ton gravier/terrasse. 2) Exporte-le en cliquant sur « Export Model » → onglet
-      « Upload (shareable link) » → « Upload my model », puis copie le lien fourni et colle-le ci-dessus.
-      3) Clique « Charger le modèle », puis « Démarrer la caméra ». Autorise l'accès caméra quand le
-      navigateur le demande. La torche ne fonctionne que si la page est servie en HTTPS (GitHub Pages
-      convient) — pas en ouvrant le fichier directement.
+      1) Sur roboflow.com, crée un projet de type « Object Detection » (pas « Classification »), importe tes
+      photos de gravier/terrasse et dessine un rectangle autour de chaque mauvaise herbe visible, avec le même
+      nom de classe à chaque fois (ex. <code>mauvaise_herbe</code>). 2) Clique « Generate » puis « Train » pour
+      entraîner le modèle (gratuit). 3) Dans l'onglet « Deploy » du projet entraîné, récupère l'ID du projet,
+      le numéro de version et ta clé API (Settings → API Keys de ton espace de travail), et colle-les ci-dessus.
+      4) Clique « Démarrer la caméra » et autorise l'accès à la caméra. Cette page a besoin d'internet pendant
+      la démo (elle envoie une image toutes les ~0,6 seconde à Roboflow) — elle ne fonctionne pas hors-ligne,
+      contrairement à la version simple sans carrés.
+    </p>
+    <p>
+      La clé API est visible dans le code source de la page une fois publiée sur GitHub — sans enjeu pour un
+      projet scolaire, mais à savoir si tu publies ce dépôt publiquement.
     </p>
   </details>
 </header>
 
 <main>
   <video id="video" playsinline muted autoplay></video>
+  <canvas id="boxes"></canvas>
   <div class="placeholder" id="placeholder">La caméra apparaîtra ici après le démarrage.</div>
   <div class="status" id="statusOverlay" hidden>
-    <span>Détection : <span class="pct" id="pct">—</span></span>
+    <span id="detCount">0 détection(s)</span>
     <span id="torchStatus">Torche : —</span>
   </div>
   <div class="banner idle" id="banner">En attente</div>
 </main>
 
 <footer>
-  Prototype GraviLase — démonstrateur de détection seul (pas de laser). Inspiré du principe du projet
-  académique POODLE : séparer le démonstrateur de détection du système de destruction réel.
+  Prototype GraviLase — démonstrateur de détection seul (pas de laser). Modèle de détection d'objets hébergé
+  sur Roboflow, appelé en direct depuis le téléphone pendant la démo.
 </footer>
 
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
 <script>
 (function(){
   "use strict";
 
-  let model = null;
+  // Intervalle entre deux appels à l'API de détection (en millisecondes).
+  // Plus petit = plus réactif mais plus d'appels réseau ; 600 ms est un bon compromis pour une démo.
+  const DETECT_INTERVAL_MS = 600;
+  const OFF_MARGIN = 0.15; // marge avant extinction, pour éviter que la torche clignote près du seuil
+  const MAX_UPLOAD_WIDTH = 640; // on redimensionne l'image avant envoi pour aller plus vite
+
   let stream = null;
   let running = false;
+  let busy = false;
   let torchOn = false;
   let torchSupported = false;
-  let threshold = 0.70;
-  let targetClassIndex = 0;
+  let threshold = 0.5;
+  let lastSourceW = 0, lastSourceH = 0;
   let currentlyDetected = false;
-  const OFF_MARGIN = 0.15; // marge avant extinction, pour éviter que la torche clignote près du seuil
+
+  const captureCanvas = document.createElement('canvas');
+  const captureCtx = captureCanvas.getContext('2d');
 
   const els = {
-    modelUrl: document.getElementById('modelUrl'),
-    loadBtn: document.getElementById('loadBtn'),
-    loadStatus: document.getElementById('loadStatus'),
+    project: document.getElementById('project'),
+    version: document.getElementById('version'),
+    apiKey: document.getElementById('apiKey'),
+    targetClass: document.getElementById('targetClass'),
     startBtn: document.getElementById('startBtn'),
     torchTestBtn: document.getElementById('torchTestBtn'),
-    classSelect: document.getElementById('classSelect'),
     threshold: document.getElementById('threshold'),
     thresholdVal: document.getElementById('thresholdVal'),
     video: document.getElementById('video'),
+    boxes: document.getElementById('boxes'),
     placeholder: document.getElementById('placeholder'),
     statusOverlay: document.getElementById('statusOverlay'),
-    pct: document.getElementById('pct'),
+    detCount: document.getElementById('detCount'),
     torchStatus: document.getElementById('torchStatus'),
     banner: document.getElementById('banner'),
     warn: document.getElementById('warn'),
+    apiStatus: document.getElementById('apiStatus'),
   };
+
+  const boxesCtx = els.boxes.getContext('2d');
 
   if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
     els.warn.hidden = false;
@@ -162,46 +186,35 @@
     els.thresholdVal.textContent = Math.round(threshold * 100) + ' %';
   });
 
-  els.classSelect.addEventListener('change', function(){
-    targetClassIndex = parseInt(els.classSelect.value, 10);
-  });
-
-  els.loadBtn.addEventListener('click', loadModel);
   els.startBtn.addEventListener('click', startCamera);
   els.torchTestBtn.addEventListener('click', testTorch);
+  window.addEventListener('resize', sizeOverlay);
 
-  function setLoadStatus(msg, isError){
-    els.loadStatus.textContent = msg;
-    els.loadStatus.style.color = isError ? '#FFB4B4' : 'var(--muted)';
+  function setApiStatus(msg, isError){
+    els.apiStatus.textContent = msg;
+    els.apiStatus.style.color = isError ? '#FFB4B4' : 'var(--muted)';
   }
 
-  async function loadModel(){
-    const raw = els.modelUrl.value.trim();
-    if (!raw){
-      setLoadStatus('Colle d\'abord l\'URL de ton modèle Teachable Machine.', true);
-      return;
-    }
-    const url = raw.endsWith('/') ? raw : raw + '/';
-    els.loadBtn.disabled = true;
-    setLoadStatus('Chargement du modèle...', false);
-    try {
-      model = await tmImage.load(url + 'model.json', url + 'metadata.json');
-      setLoadStatus('Modèle chargé (' + model.getTotalClasses() + ' classes).', false);
-      els.startBtn.disabled = false;
-    } catch (e) {
-      console.error(e);
-      setLoadStatus('Échec du chargement. Vérifie l\'URL (doit ressembler à ' +
-        'https://teachablemachine.withgoogle.com/models/XXXXXXXX/).', true);
-    }
-    els.loadBtn.disabled = false;
+  function sizeOverlay(){
+    const rect = els.video.parentElement.getBoundingClientRect();
+    els.boxes.width = rect.width;
+    els.boxes.height = rect.height;
   }
 
   async function startCamera(){
+    const project = els.project.value.trim();
+    const version = els.version.value.trim();
+    const apiKey = els.apiKey.value.trim();
+    if (!project || !version || !apiKey){
+      alert('Renseigne l\'ID du projet, la version et la clé API Roboflow avant de démarrer.');
+      return;
+    }
+
     els.startBtn.disabled = true;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 640 }, height: { ideal: 480 } }
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 960 }, height: { ideal: 720 } }
       });
     } catch (e) {
       console.error(e);
@@ -214,6 +227,7 @@
     await els.video.play();
     els.placeholder.hidden = true;
     els.statusOverlay.hidden = false;
+    sizeOverlay();
 
     const track = stream.getVideoTracks()[0];
     const caps = (track.getCapabilities && track.getCapabilities()) || {};
@@ -221,23 +235,126 @@
     els.torchTestBtn.disabled = !torchSupported;
     els.torchStatus.textContent = 'Torche : ' + (torchSupported ? 'disponible' : 'non supportée ici');
 
-    // Une première prédiction sert juste à récupérer les noms de classes du modèle
-    const firstPred = await model.predict(els.video);
-    els.classSelect.innerHTML = '';
-    firstPred.forEach(function(p, i){
-      const opt = document.createElement('option');
-      opt.value = i;
-      opt.textContent = p.className;
-      els.classSelect.appendChild(opt);
-    });
-    els.classSelect.disabled = false;
-
-    const guess = firstPred.findIndex(function(p){ return /herbe|weed|mauvaise/i.test(p.className); });
-    targetClassIndex = guess >= 0 ? guess : 0;
-    els.classSelect.value = targetClassIndex;
-
     running = true;
-    requestAnimationFrame(loop);
+    scheduleNextDetection(0);
+  }
+
+  function scheduleNextDetection(delay){
+    setTimeout(function(){
+      if (!running) return;
+      detectFrame().finally(function(){
+        scheduleNextDetection(DETECT_INTERVAL_MS);
+      });
+    }, delay);
+  }
+
+  function detectFrame(){
+    if (busy) return Promise.resolve();
+    busy = true;
+
+    const vw = els.video.videoWidth, vh = els.video.videoHeight;
+    if (!vw || !vh){ busy = false; return Promise.resolve(); }
+
+    const scale = Math.min(1, MAX_UPLOAD_WIDTH / vw);
+    const w = Math.round(vw * scale), h = Math.round(vh * scale);
+    captureCanvas.width = w;
+    captureCanvas.height = h;
+    captureCtx.drawImage(els.video, 0, 0, w, h);
+    lastSourceW = w; lastSourceH = h;
+
+    return new Promise(function(resolve){
+      captureCanvas.toBlob(async function(blob){
+        if (!blob){ busy = false; resolve(); return; }
+        try {
+          const project = els.project.value.trim();
+          const version = els.version.value.trim();
+          const apiKey = els.apiKey.value.trim();
+          const form = new FormData();
+          form.append('file', blob, 'frame.jpg');
+          const url = 'https://serverless.roboflow.com/' + encodeURIComponent(project) + '/' +
+            encodeURIComponent(version) + '?confidence=0.25';
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + apiKey },
+            body: form
+          });
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          const data = await res.json();
+          handlePredictions(data.predictions || []);
+          setApiStatus('Connecté — dernière réponse OK (' + new Date().toLocaleTimeString() + ')', false);
+        } catch (e) {
+          console.error(e);
+          setApiStatus('Erreur API Roboflow : ' + e.message + ' — vérifie l\'ID projet, la version et la clé.', true);
+        } finally {
+          busy = false;
+          resolve();
+        }
+      }, 'image/jpeg', 0.7);
+    });
+  }
+
+  function handlePredictions(predictions){
+    drawBoxes(predictions);
+    const target = els.targetClass.value.trim().toLowerCase();
+    const match = predictions.find(function(p){
+      return (p.class || '').toLowerCase().includes(target) && p.confidence >= threshold;
+    });
+
+    els.detCount.textContent = predictions.length + ' détection(s)';
+
+    if (!currentlyDetected && match){
+      currentlyDetected = true;
+    } else if (currentlyDetected) {
+      const stillAbove = predictions.some(function(p){
+        return (p.class || '').toLowerCase().includes(target) && p.confidence >= (threshold - OFF_MARGIN);
+      });
+      if (!stillAbove) currentlyDetected = false;
+    }
+
+    if (currentlyDetected){
+      els.banner.className = 'banner detect';
+      els.banner.textContent = 'MAUVAISE HERBE DÉTECTÉE';
+      setTorch(true);
+    } else {
+      els.banner.className = 'banner clear';
+      els.banner.textContent = 'RAS';
+      setTorch(false);
+    }
+  }
+
+  function drawBoxes(predictions){
+    const rect = els.video.parentElement.getBoundingClientRect();
+    if (els.boxes.width !== rect.width || els.boxes.height !== rect.height) sizeOverlay();
+
+    boxesCtx.clearRect(0, 0, els.boxes.width, els.boxes.height);
+    if (!lastSourceW || !lastSourceH) return;
+
+    const cw = els.boxes.width, ch = els.boxes.height;
+    const scale = Math.max(cw / lastSourceW, ch / lastSourceH);
+    const offsetX = (cw - lastSourceW * scale) / 2;
+    const offsetY = (ch - lastSourceH * scale) / 2;
+
+    const target = els.targetClass.value.trim().toLowerCase();
+
+    predictions.forEach(function(p){
+      const isTarget = (p.class || '').toLowerCase().includes(target);
+      const left = offsetX + (p.x - p.width / 2) * scale;
+      const top = offsetY + (p.y - p.height / 2) * scale;
+      const w = p.width * scale;
+      const h = p.height * scale;
+
+      boxesCtx.lineWidth = 3;
+      boxesCtx.strokeStyle = isTarget ? '#AD2229' : '#4B535F';
+      boxesCtx.strokeRect(left, top, w, h);
+
+      const label = p.class + ' ' + Math.round(p.confidence * 100) + '%';
+      boxesCtx.font = '600 13px -apple-system, Roboto, Arial, sans-serif';
+      const textW = boxesCtx.measureText(label).width + 10;
+      boxesCtx.fillStyle = isTarget ? '#AD2229' : '#4B535F';
+      boxesCtx.fillRect(left, Math.max(0, top - 20), textW, 20);
+      boxesCtx.fillStyle = '#fff';
+      boxesCtx.fillText(label, left + 5, Math.max(14, top - 5));
+    });
   }
 
   async function setTorch(on){
@@ -254,34 +371,6 @@
   async function testTorch(){
     await setTorch(true);
     setTimeout(function(){ setTorch(false); }, 800);
-  }
-
-  async function loop(){
-    if (!running) return;
-    try {
-      const preds = await model.predict(els.video);
-      const p = preds[targetClassIndex] ? preds[targetClassIndex].probability : 0;
-      els.pct.textContent = Math.round(p * 100) + ' %';
-
-      if (!currentlyDetected && p >= threshold){
-        currentlyDetected = true;
-      } else if (currentlyDetected && p < threshold - OFF_MARGIN){
-        currentlyDetected = false;
-      }
-
-      if (currentlyDetected){
-        els.banner.className = 'banner detect';
-        els.banner.textContent = 'MAUVAISE HERBE DÉTECTÉE';
-        setTorch(true);
-      } else {
-        els.banner.className = 'banner clear';
-        els.banner.textContent = 'RAS';
-        setTorch(false);
-      }
-    } catch (e) {
-      console.error(e);
-    }
-    requestAnimationFrame(loop);
   }
 })();
 </script>
