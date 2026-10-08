@@ -271,11 +271,16 @@
           const apiKey = els.apiKey.value.trim();
           const form = new FormData();
           form.append('file', blob, 'frame.jpg');
+          // La clé passe dans l'URL (paramètre api_key) plutôt que dans un en-tête
+          // "Authorization" : un en-tête personnalisé oblige le navigateur à faire une requête
+          // de pré-vérification CORS (OPTIONS) avant chaque appel, et le serveur de Roboflow
+          // n'y répond pas toujours correctement depuis un site comme GitHub Pages — ça provoque
+          // l'erreur "Failed to fetch" vue sur le téléphone. Sans en-tête personnalisé, cette
+          // pré-vérification n'a pas lieu.
           const url = 'https://serverless.roboflow.com/' + encodeURIComponent(project) + '/' +
-            encodeURIComponent(version) + '?confidence=0.25';
+            encodeURIComponent(version) + '?confidence=0.25&api_key=' + encodeURIComponent(apiKey);
           const res = await fetch(url, {
             method: 'POST',
-            headers: { 'Authorization': 'Bearer ' + apiKey },
             body: form
           });
           if (!res.ok) throw new Error('HTTP ' + res.status);
